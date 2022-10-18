@@ -1,0 +1,660 @@
+#!/bin/bash
+
+SERVER_IPADDR="192.168.1.121"
+SERVER_PORT="3306"
+MYSQL_USER="miwakensa"
+MYSQL_PASS="hinoeng"
+MYSQL_CPU_DB="miwa_CPU__RDCA"
+MYSQL_LAN_DB="miwa_LAN__EUCU"
+
+UTEST="618fb163-3500-45b8-805a-42d94f361cd3"
+WORKSPACE_DIR="/tmp/interface-${UTEST}-miwadb"
+mkdir -p "${WORKSPACE_DIR}"
+CSV_FILE_TEMP="${WORKSPACE_DIR}/miwakensa_template.csv"
+INSTALL_DIR="/opt/interface-miwa"
+IF_TEST_CONFIG="${INSTALL_DIR}/conf/setting.conf"
+
+if [ -f "${IF_TEST_CONFIG}" ]; then
+  TARGET_IPADDR=$(awk -F '=' '/^TARGET_IP_ADDRESS/{print $2}' "${IF_TEST_CONFIG}")
+  if [ -z "${TARGET_IPADDR}" ]; then
+    TARGET_IPADDR="192.168.0.39"
+  fi
+  SERVER_IPADDR=$(awk -F '=' '/^SERVER_IP_ADDRESS/{print $2}' "${IF_TEST_CONFIG}")
+  if [ -z "${SERVER_IPADDR}" ]; then
+    SERVER_IPADDR="192.168.1.121"
+  fi
+else
+  TARGET_IPADDR="192.168.0.39"
+  SERVER_IPADDR="192.168.1.121"
+fi
+
+
+if [ -z "$1" ]; then
+  echo "USAGE: $0 <CSV summary file>"
+  exit 1
+else
+  CSV_RESULTS_SUMMARY="$1"
+fi
+
+dbupload_generate_template(){
+  cat << _MY_B64_FILE_EOF | base64 -d > "$1"
+77u/5Z+65p2/44K344Oq44Ki44OrTm8uLENQVembu+a6kOaKleWFpSzjg6Hjg6Ljg6pSL1csRU1N
+Q+OCveODleODiOOCkuabuOOBjei+vOOBvyxXaUZp5o6l57aaLFNE44Kr44O844OJUi9XLFJTLTQ4
+NemAmuS/oSxVU0LpgJrkv6Es44Kr44Oh44Op5Yi25b6hLFZERF9TT0NfMFY46Zu75ZynLFZERF9B
+Uk1fMFY56Zu75ZynLFZERF9EUkFNJlBVXzBWOembu+WcpyxWRERfM1Yz6Zu75ZynLFZERF8xVjjp
+m7vlnKcsTlZDQ19EUkFNXzFWMembu+WcpyxOVkNDX1NOVlNfMVY46Zu75ZynLFZERF9TTlZTXzBW
+OOmbu+WcpyxWRERfUEhZXzBWOembu+WcpyxWRERfUEhZXzFWMumbu+WcpyxWRERBXzFWOOmbu+Wc
+pyxOVkNDX1NEMumbu+WcpyxWRVJTQV9WSU4xMumbu+WcpyxEQ0RDXzVW6Zu75ZynLFZERF81Vumb
+u+Wcpyzjgqvjg6Hjg6nmjqXntposQVZERF8yLjhW6Zu75ZynLERWREQxMumbu+WcpyxWT1VUMV9F
+TixWT1VUMembu+WcpyxWT1VUMl9FTixWT1VUMumbu+WcpyzmuKnluqbjgrvjg7PjgrXliLblvqEs
+TEVE5Yi25b6hLOmNteaDheWgseS/neWtmOapn+iDvSzln7rmnb/jgrfjg6rjgqLjg6tOby7kv53l
+rZgsTWljcm9TROOCq+ODvOODiei1t+WLlSxCb290IE1vZGUgYW5kIENGRyBTd2l0Y2gs5qSc5p+7
+Ri9XIFZlci4sV2ktRmkgTUFD44Ki44OJ44Os44K5LOaknOafu+aXpeaZgizmi4XlvZPogIUs5LiW
+5Luj44OV44Op44KwClJEQ0EtQjAxQ1AwMTAwMDAyMTEwMDcwMDAwMDAwMSxPSyxPSyxPSyxPSyxP
+SyxPSyxPSyxPSywwLjg1LDAuOTUsMC45NzUsMy4zLDEuOCwxLjEsMS44LDAuOCwwLjksMS4yLDEu
+OCwzLjMsMTIsNSw1LE9LLDIuOCwxLjIsT0ssMTIsT0ssMTIsMCxPSyxPSyxPSyxPSyxPSywwLEY3
+OjUwOkNEOjFBOjUxOkQyLDIwMjEvNS85IDE0OjI2LOe+juWSjOWkqumDjiwwCg==
+_MY_B64_FILE_EOF
+
+}
+dbupload_generate_template "${CSV_FILE_TEMP}"
+
+if [ -f "${CSV_FILE_TEMP}" ]; then  
+  IFS=',' read -r -a TEST_CATAGORIES < "${CSV_FILE_TEMP}"
+  rm -f "${CSV_FILE_TEMP}"
+else
+  echo "CSV template file not found"
+  exit 1
+fi
+
+if [ -f "${CSV_RESULTS_SUMMARY}" ]; then
+  for ((idx=0;idx<42;idx++)) 
+  do
+    TEST_RESULT_NAME[$idx]=`awk -F ',' '/'"^${idx},"'/{print $2}' "${CSV_RESULTS_SUMMARY}"`
+    TEST_RESULT_VALUE[$idx]=`awk -F ',' '/'"^${idx},"'/{print $3}' "${CSV_RESULTS_SUMMARY}"`
+
+    if [ -z "${TEST_RESULT_VALUE[$idx]}" ]; then
+      echo "Result is wrong at [${idx}] ${TEST_RESULT_NAME[$idx]} '${TEST_RESULT_VALUE[$idx]}'"
+      exit 1
+    fi
+  done
+else
+  echo "CSV result file not found"
+  exit 1
+fi
+
+
+dbupload_get_field_by_id() {
+  TABLE_NAME="$1"
+  SERIAL_NO="$2"
+  SERIAL_NO_OUT=$(mysql -N -h${SERVER_IPADDR} -u${MYSQL_USER} -p${MYSQL_PASS} --database=${MYSQL_CPU_DB} <<SQL_QUERIES
+SELECT
+\`${TEST_CATAGORIES[41]}\`
+FROM \`${TABLE_NAME}\` WHERE \`${TEST_CATAGORIES[41]}\` LIKE '${SERIAL_NO}';
+SQL_QUERIES
+  )
+
+}
+
+dbupload_create_table() {
+  TABLE_NAME="$1"
+  if [ -z "${TABLE_NAME}" ]; then
+    echo "Please specify the table name"
+    return 1
+  fi
+
+  mysql -h${SERVER_IPADDR} -u${MYSQL_USER} -p${MYSQL_PASS} --database=${MYSQL_CPU_DB} <<SQL_QUERIES
+CREATE TABLE IF NOT EXISTS \`${TABLE_NAME}\` (
+\`${TEST_CATAGORIES[0]}\`        VARCHAR(30) NOT NULL,
+\`${TEST_CATAGORIES[1]}\`        VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[2]}\`        VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[3]}\`        VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[4]}\`        VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[5]}\`        VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[6]}\`        VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[7]}\`        VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[8]}\`        VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[9]}\`        VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[10]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[11]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[12]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[13]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[14]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[15]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[16]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[17]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[18]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[19]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[20]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[21]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[22]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[23]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[24]}\`       VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[25]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[26]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[27]}\`       VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[28]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[29]}\`       VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[30]}\`       VARCHAR(5) NOT NULL,
+\`${TEST_CATAGORIES[31]}\`       VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[32]}\`       VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[33]}\`       VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[34]}\`       VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[35]}\`       VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[36]}\`       VARCHAR(2) NOT NULL,
+\`${TEST_CATAGORIES[37]}\`       VARCHAR(4) NOT NULL,
+\`${TEST_CATAGORIES[38]}\`       VARCHAR(17) NOT NULL,
+\`${TEST_CATAGORIES[39]}\`       VARCHAR(19) NOT NULL,
+\`${TEST_CATAGORIES[40]}\`       VARCHAR(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+\`${TEST_CATAGORIES[41]}\`       VARCHAR(1) NOT NULL,
+PRIMARY KEY (\`${TEST_CATAGORIES[0]}\`,\`${TEST_CATAGORIES[41]}\`),
+UNIQUE KEY (\`${TEST_CATAGORIES[38]}\`,\`${TEST_CATAGORIES[41]}\`)
+)
+ENGINE = InnoDB;
+SQL_QUERIES
+
+  RESP=$?
+  if [ $RESP -eq 0 ]; then
+    return 0
+  else
+    echo "Cannot create table"
+    return $RESP
+  fi
+}
+
+
+
+dbupload_get_duplicate_by_serialno() {
+TABLE_NAME="$1"
+SERIAL_NO="$2"
+mysql -N -h${SERVER_IPADDR} -u${MYSQL_USER} -p${MYSQL_PASS} --database=${MYSQL_CPU_DB} <<SQL_QUERIES
+SELECT COUNT(*) FROM \`${TABLE_NAME}\` WHERE \`${TEST_CATAGORIES[0]}\`='${SERIAL_NO}';
+SQL_QUERIES
+}
+
+
+dbupload_check_mac_duplicate() {
+  TABLE_NAME="$1"
+  MAC_ADDRESS="${TEST_RESULT_VALUE[38]}"
+  GENERATION_NO=$(mysql -N -h${SERVER_IPADDR} -u${MYSQL_USER} -p${MYSQL_PASS} --database=${MYSQL_CPU_DB} <<SQL_QUERIES
+SELECT MAX(\`${TEST_CATAGORIES[41]}\`) FROM \`${TABLE_NAME}\` WHERE \`${TEST_CATAGORIES[38]}\`='${MAC_ADDRESS}';
+SQL_QUERIES
+)
+
+  if [ -z "${GENERATION_NO}" ]; then
+    echo "-1"
+    return 1
+  fi
+  if [[ ! "${GENERATION_NO}" =~ ^[0-9]*$ ]] && [ "${GENERATION_NO}" != "NULL" ]; then
+    echo "-2"
+    return 2
+  fi
+  if [ "${GENERATION_NO}" == "NULL" ]; then
+    echo "0"
+  else
+    echo "$((GENERATION_NO+1))"
+  fi
+  return 0
+}
+
+dbupload_get_date() {
+  GET_DATE_RAW=$(mysql -N -h${SERVER_IPADDR} -u${MYSQL_USER} -p${MYSQL_PASS} --database=${MYSQL_CPU_DB} <<SQL_QUERIES
+SELECT CURDATE();
+SQL_QUERIES
+)
+  RESP=$?
+  if [ $RESP -eq 0 ]; then
+    GET_DATE_VALUE=$(echo "${GET_DATE_RAW}" | tr -d '-')
+    if [[ "${GET_DATE_VALUE}" =~ ^[0-9]*$ ]]; then
+      echo "${GET_DATE_VALUE}"
+    fi
+  else
+    echo ""
+  fi
+}
+
+dbupload_get_datetime() {
+  GET_DATETIME_RAW=$(mysql -N -h${SERVER_IPADDR} -u${MYSQL_USER} -p${MYSQL_PASS} --database=${MYSQL_CPU_DB} <<SQL_QUERIES
+SELECT NOW();
+SQL_QUERIES
+)
+  RESP=$?
+  if [ $RESP -eq 0 ]; then
+    GET_DATETIME_VALUE=$(echo "${GET_DATETIME_RAW}" | sed "s/\-/\//g")
+    GET_DATETIME_CHECK=$(echo "${GET_DATETIME_RAW}" | tr -d '\:\-\ ')
+    if [[ "${GET_DATETIME_CHECK}" =~ ^[0-9]*$ ]]; then
+      echo "${GET_DATETIME_VALUE}"
+    fi
+  else
+    echo ""
+  fi
+}
+
+
+dbupload_check_connection_to_sql_server(){
+  mysql -N -h${SERVER_IPADDR} -u${MYSQL_USER} -p${MYSQL_PASS} --database=${MYSQL_CPU_DB}
+}
+
+
+
+dbupload_insert_into_table_from_csv() {
+  TABLE_NAME="$1"
+  mysql -h${SERVER_IPADDR} -u${MYSQL_USER} -p${MYSQL_PASS} --database=${MYSQL_CPU_DB} --local-infile=1 << SQL_QUERIES
+LOAD DATA LOCAL INFILE  
+'${TEST_RESULTS_CSV}' 
+INTO TABLE \`${TABLE_NAME}\` 
+CHARACTER SET utf8mb4 
+FIELDS TERMINATED BY ',' 
+LINES TERMINATED BY '\n';
+SQL_QUERIES
+  RESP=$?
+  if [ $RESP -eq 0 ]; then
+    echo "Insert csv to server"
+    return 0
+  else
+    echo "Cannot insert test data to server"
+    return $RESP
+  fi
+}
+
+
+dbupload_insert_into_table() {
+  TABLE_NAME="$1"
+  KENSA_DATETIME="$2"
+  mysql -h${SERVER_IPADDR} -u${MYSQL_USER} -p${MYSQL_PASS} --database=${MYSQL_CPU_DB} <<SQL_QUERIES
+INSERT INTO \`${TABLE_NAME}\` (
+\`${TEST_CATAGORIES[0]}\`,
+\`${TEST_CATAGORIES[1]}\`,
+\`${TEST_CATAGORIES[2]}\`,
+\`${TEST_CATAGORIES[3]}\`,
+\`${TEST_CATAGORIES[4]}\`,
+\`${TEST_CATAGORIES[5]}\`,
+\`${TEST_CATAGORIES[6]}\`,
+\`${TEST_CATAGORIES[7]}\`,
+\`${TEST_CATAGORIES[8]}\`,
+\`${TEST_CATAGORIES[9]}\`,
+\`${TEST_CATAGORIES[10]}\`,
+\`${TEST_CATAGORIES[11]}\`,
+\`${TEST_CATAGORIES[12]}\`,
+\`${TEST_CATAGORIES[13]}\`,
+\`${TEST_CATAGORIES[14]}\`,
+\`${TEST_CATAGORIES[15]}\`,
+\`${TEST_CATAGORIES[16]}\`,
+\`${TEST_CATAGORIES[17]}\`,
+\`${TEST_CATAGORIES[18]}\`,
+\`${TEST_CATAGORIES[19]}\`,
+\`${TEST_CATAGORIES[20]}\`,
+\`${TEST_CATAGORIES[21]}\`,
+\`${TEST_CATAGORIES[22]}\`,
+\`${TEST_CATAGORIES[23]}\`,
+\`${TEST_CATAGORIES[24]}\`,
+\`${TEST_CATAGORIES[25]}\`,
+\`${TEST_CATAGORIES[26]}\`,
+\`${TEST_CATAGORIES[27]}\`,
+\`${TEST_CATAGORIES[28]}\`,
+\`${TEST_CATAGORIES[29]}\`,
+\`${TEST_CATAGORIES[30]}\`,
+\`${TEST_CATAGORIES[31]}\`,
+\`${TEST_CATAGORIES[32]}\`,
+\`${TEST_CATAGORIES[33]}\`,
+\`${TEST_CATAGORIES[34]}\`,
+\`${TEST_CATAGORIES[35]}\`,
+\`${TEST_CATAGORIES[36]}\`,
+\`${TEST_CATAGORIES[37]}\`,
+\`${TEST_CATAGORIES[38]}\`,
+\`${TEST_CATAGORIES[39]}\`,
+\`${TEST_CATAGORIES[40]}\`,
+\`${TEST_CATAGORIES[41]}\`) 
+VALUES (
+'${TEST_RESULT_VALUE[0]}',
+'${TEST_RESULT_VALUE[1]}',
+'${TEST_RESULT_VALUE[2]}',
+'${TEST_RESULT_VALUE[3]}',
+'${TEST_RESULT_VALUE[4]}',
+'${TEST_RESULT_VALUE[5]}',
+'${TEST_RESULT_VALUE[6]}',
+'${TEST_RESULT_VALUE[7]}',
+'${TEST_RESULT_VALUE[8]}',
+'${TEST_RESULT_VALUE[9]}',
+'${TEST_RESULT_VALUE[10]}',
+'${TEST_RESULT_VALUE[11]}',
+'${TEST_RESULT_VALUE[12]}',
+'${TEST_RESULT_VALUE[13]}',
+'${TEST_RESULT_VALUE[14]}',
+'${TEST_RESULT_VALUE[15]}',
+'${TEST_RESULT_VALUE[16]}',
+'${TEST_RESULT_VALUE[17]}',
+'${TEST_RESULT_VALUE[18]}',
+'${TEST_RESULT_VALUE[19]}',
+'${TEST_RESULT_VALUE[20]}',
+'${TEST_RESULT_VALUE[21]}',
+'${TEST_RESULT_VALUE[22]}',
+'${TEST_RESULT_VALUE[23]}',
+'${TEST_RESULT_VALUE[24]}',
+'${TEST_RESULT_VALUE[25]}',
+'${TEST_RESULT_VALUE[26]}',
+'${TEST_RESULT_VALUE[27]}',
+'${TEST_RESULT_VALUE[28]}',
+'${TEST_RESULT_VALUE[29]}',
+'${TEST_RESULT_VALUE[30]}',
+'${TEST_RESULT_VALUE[31]}',
+'${TEST_RESULT_VALUE[32]}',
+'${TEST_RESULT_VALUE[33]}',
+'${TEST_RESULT_VALUE[34]}',
+'${TEST_RESULT_VALUE[35]}',
+'${TEST_RESULT_VALUE[36]}',
+'${TEST_RESULT_VALUE[37]}',
+'${TEST_RESULT_VALUE[38]}',
+'${KENSA_DATETIME}',
+'${TEST_RESULT_VALUE[40]}',
+'${TEST_RESULT_VALUE[41]}');
+SQL_QUERIES
+  RESP=$?
+  echo "RESPONSE $RESP"
+}
+
+
+dbupload_insert_into_table_gen() {
+  TABLE_NAME="$1"
+  KENSA_DATETIME="$2"
+  LAST_GENERATION_NO="$3"
+
+  mysql -h${SERVER_IPADDR} -u${MYSQL_USER} -p${MYSQL_PASS} --database=${MYSQL_CPU_DB} <<SQL_QUERIES
+INSERT INTO \`${TABLE_NAME}\` (
+\`${TEST_CATAGORIES[0]}\`,
+\`${TEST_CATAGORIES[1]}\`,
+\`${TEST_CATAGORIES[2]}\`,
+\`${TEST_CATAGORIES[3]}\`,
+\`${TEST_CATAGORIES[4]}\`,
+\`${TEST_CATAGORIES[5]}\`,
+\`${TEST_CATAGORIES[6]}\`,
+\`${TEST_CATAGORIES[7]}\`,
+\`${TEST_CATAGORIES[8]}\`,
+\`${TEST_CATAGORIES[9]}\`,
+\`${TEST_CATAGORIES[10]}\`,
+\`${TEST_CATAGORIES[11]}\`,
+\`${TEST_CATAGORIES[12]}\`,
+\`${TEST_CATAGORIES[13]}\`,
+\`${TEST_CATAGORIES[14]}\`,
+\`${TEST_CATAGORIES[15]}\`,
+\`${TEST_CATAGORIES[16]}\`,
+\`${TEST_CATAGORIES[17]}\`,
+\`${TEST_CATAGORIES[18]}\`,
+\`${TEST_CATAGORIES[19]}\`,
+\`${TEST_CATAGORIES[20]}\`,
+\`${TEST_CATAGORIES[21]}\`,
+\`${TEST_CATAGORIES[22]}\`,
+\`${TEST_CATAGORIES[23]}\`,
+\`${TEST_CATAGORIES[24]}\`,
+\`${TEST_CATAGORIES[25]}\`,
+\`${TEST_CATAGORIES[26]}\`,
+\`${TEST_CATAGORIES[27]}\`,
+\`${TEST_CATAGORIES[28]}\`,
+\`${TEST_CATAGORIES[29]}\`,
+\`${TEST_CATAGORIES[30]}\`,
+\`${TEST_CATAGORIES[31]}\`,
+\`${TEST_CATAGORIES[32]}\`,
+\`${TEST_CATAGORIES[33]}\`,
+\`${TEST_CATAGORIES[34]}\`,
+\`${TEST_CATAGORIES[35]}\`,
+\`${TEST_CATAGORIES[36]}\`,
+\`${TEST_CATAGORIES[37]}\`,
+\`${TEST_CATAGORIES[38]}\`,
+\`${TEST_CATAGORIES[39]}\`,
+\`${TEST_CATAGORIES[40]}\`,
+\`${TEST_CATAGORIES[41]}\`) 
+VALUES (
+'${TEST_RESULT_VALUE[0]}',
+'${TEST_RESULT_VALUE[1]}',
+'${TEST_RESULT_VALUE[2]}',
+'${TEST_RESULT_VALUE[3]}',
+'${TEST_RESULT_VALUE[4]}',
+'${TEST_RESULT_VALUE[5]}',
+'${TEST_RESULT_VALUE[6]}',
+'${TEST_RESULT_VALUE[7]}',
+'${TEST_RESULT_VALUE[8]}',
+'${TEST_RESULT_VALUE[9]}',
+'${TEST_RESULT_VALUE[10]}',
+'${TEST_RESULT_VALUE[11]}',
+'${TEST_RESULT_VALUE[12]}',
+'${TEST_RESULT_VALUE[13]}',
+'${TEST_RESULT_VALUE[14]}',
+'${TEST_RESULT_VALUE[15]}',
+'${TEST_RESULT_VALUE[16]}',
+'${TEST_RESULT_VALUE[17]}',
+'${TEST_RESULT_VALUE[18]}',
+'${TEST_RESULT_VALUE[19]}',
+'${TEST_RESULT_VALUE[20]}',
+'${TEST_RESULT_VALUE[21]}',
+'${TEST_RESULT_VALUE[22]}',
+'${TEST_RESULT_VALUE[23]}',
+'${TEST_RESULT_VALUE[24]}',
+'${TEST_RESULT_VALUE[25]}',
+'${TEST_RESULT_VALUE[26]}',
+'${TEST_RESULT_VALUE[27]}',
+'${TEST_RESULT_VALUE[28]}',
+'${TEST_RESULT_VALUE[29]}',
+'${TEST_RESULT_VALUE[30]}',
+'${TEST_RESULT_VALUE[31]}',
+'${TEST_RESULT_VALUE[32]}',
+'${TEST_RESULT_VALUE[33]}',
+'${TEST_RESULT_VALUE[34]}',
+'${TEST_RESULT_VALUE[35]}',
+'${TEST_RESULT_VALUE[36]}',
+'${TEST_RESULT_VALUE[37]}',
+'${TEST_RESULT_VALUE[38]}',
+'${KENSA_DATETIME}',
+'${TEST_RESULT_VALUE[40]}',
+'${LAST_GENERATION_NO}');
+SQL_QUERIES
+  RESP=$?
+  echo "$RESP"
+}
+
+
+dbupload_insert_into_table_update() {
+  TABLE_NAME="$1"
+  KENSA_DATETIME="$2"
+  LAST_GENERATION_NO="0"
+
+  mysql -h${SERVER_IPADDR} -u${MYSQL_USER} -p${MYSQL_PASS} --database=${MYSQL_CPU_DB} <<SQL_QUERIES
+INSERT INTO \`${TABLE_NAME}\` (
+\`${TEST_CATAGORIES[0]}\`,
+\`${TEST_CATAGORIES[1]}\`,
+\`${TEST_CATAGORIES[2]}\`,
+\`${TEST_CATAGORIES[3]}\`,
+\`${TEST_CATAGORIES[4]}\`,
+\`${TEST_CATAGORIES[5]}\`,
+\`${TEST_CATAGORIES[6]}\`,
+\`${TEST_CATAGORIES[7]}\`,
+\`${TEST_CATAGORIES[8]}\`,
+\`${TEST_CATAGORIES[9]}\`,
+\`${TEST_CATAGORIES[10]}\`,
+\`${TEST_CATAGORIES[11]}\`,
+\`${TEST_CATAGORIES[12]}\`,
+\`${TEST_CATAGORIES[13]}\`,
+\`${TEST_CATAGORIES[14]}\`,
+\`${TEST_CATAGORIES[15]}\`,
+\`${TEST_CATAGORIES[16]}\`,
+\`${TEST_CATAGORIES[17]}\`,
+\`${TEST_CATAGORIES[18]}\`,
+\`${TEST_CATAGORIES[19]}\`,
+\`${TEST_CATAGORIES[20]}\`,
+\`${TEST_CATAGORIES[21]}\`,
+\`${TEST_CATAGORIES[22]}\`,
+\`${TEST_CATAGORIES[23]}\`,
+\`${TEST_CATAGORIES[24]}\`,
+\`${TEST_CATAGORIES[25]}\`,
+\`${TEST_CATAGORIES[26]}\`,
+\`${TEST_CATAGORIES[27]}\`,
+\`${TEST_CATAGORIES[28]}\`,
+\`${TEST_CATAGORIES[29]}\`,
+\`${TEST_CATAGORIES[30]}\`,
+\`${TEST_CATAGORIES[31]}\`,
+\`${TEST_CATAGORIES[32]}\`,
+\`${TEST_CATAGORIES[33]}\`,
+\`${TEST_CATAGORIES[34]}\`,
+\`${TEST_CATAGORIES[35]}\`,
+\`${TEST_CATAGORIES[36]}\`,
+\`${TEST_CATAGORIES[37]}\`,
+\`${TEST_CATAGORIES[38]}\`,
+\`${TEST_CATAGORIES[39]}\`,
+\`${TEST_CATAGORIES[40]}\`,
+\`${TEST_CATAGORIES[41]}\`) 
+VALUES (
+'${TEST_RESULT_VALUE[0]}',
+'${TEST_RESULT_VALUE[1]}',
+'${TEST_RESULT_VALUE[2]}',
+'${TEST_RESULT_VALUE[3]}',
+'${TEST_RESULT_VALUE[4]}',
+'${TEST_RESULT_VALUE[5]}',
+'${TEST_RESULT_VALUE[6]}',
+'${TEST_RESULT_VALUE[7]}',
+'${TEST_RESULT_VALUE[8]}',
+'${TEST_RESULT_VALUE[9]}',
+'${TEST_RESULT_VALUE[10]}',
+'${TEST_RESULT_VALUE[11]}',
+'${TEST_RESULT_VALUE[12]}',
+'${TEST_RESULT_VALUE[13]}',
+'${TEST_RESULT_VALUE[14]}',
+'${TEST_RESULT_VALUE[15]}',
+'${TEST_RESULT_VALUE[16]}',
+'${TEST_RESULT_VALUE[17]}',
+'${TEST_RESULT_VALUE[18]}',
+'${TEST_RESULT_VALUE[19]}',
+'${TEST_RESULT_VALUE[20]}',
+'${TEST_RESULT_VALUE[21]}',
+'${TEST_RESULT_VALUE[22]}',
+'${TEST_RESULT_VALUE[23]}',
+'${TEST_RESULT_VALUE[24]}',
+'${TEST_RESULT_VALUE[25]}',
+'${TEST_RESULT_VALUE[26]}',
+'${TEST_RESULT_VALUE[27]}',
+'${TEST_RESULT_VALUE[28]}',
+'${TEST_RESULT_VALUE[29]}',
+'${TEST_RESULT_VALUE[30]}',
+'${TEST_RESULT_VALUE[31]}',
+'${TEST_RESULT_VALUE[32]}',
+'${TEST_RESULT_VALUE[33]}',
+'${TEST_RESULT_VALUE[34]}',
+'${TEST_RESULT_VALUE[35]}',
+'${TEST_RESULT_VALUE[36]}',
+'${TEST_RESULT_VALUE[37]}',
+'${TEST_RESULT_VALUE[38]}',
+'${KENSA_DATETIME}',
+'${TEST_RESULT_VALUE[40]}',
+'${LAST_GENERATION_NO}')
+ON DUPLICATE KEY UPDATE 
+\`${TEST_CATAGORIES[1]}\`='${TEST_RESULT_VALUE[1]}',
+\`${TEST_CATAGORIES[2]}\`='${TEST_RESULT_VALUE[2]}',
+\`${TEST_CATAGORIES[3]}\`='${TEST_RESULT_VALUE[3]}',
+\`${TEST_CATAGORIES[4]}\`='${TEST_RESULT_VALUE[4]}',
+\`${TEST_CATAGORIES[5]}\`='${TEST_RESULT_VALUE[5]}',
+\`${TEST_CATAGORIES[6]}\`='${TEST_RESULT_VALUE[6]}',
+\`${TEST_CATAGORIES[7]}\`='${TEST_RESULT_VALUE[7]}',
+\`${TEST_CATAGORIES[8]}\`='${TEST_RESULT_VALUE[8]}',
+\`${TEST_CATAGORIES[9]}\`='${TEST_RESULT_VALUE[9]}',
+\`${TEST_CATAGORIES[10]}\`='${TEST_RESULT_VALUE[10]}',
+\`${TEST_CATAGORIES[11]}\`='${TEST_RESULT_VALUE[11]}',
+\`${TEST_CATAGORIES[12]}\`='${TEST_RESULT_VALUE[12]}',
+\`${TEST_CATAGORIES[13]}\`='${TEST_RESULT_VALUE[13]}',
+\`${TEST_CATAGORIES[14]}\`='${TEST_RESULT_VALUE[14]}',
+\`${TEST_CATAGORIES[15]}\`='${TEST_RESULT_VALUE[15]}',
+\`${TEST_CATAGORIES[16]}\`='${TEST_RESULT_VALUE[16]}',
+\`${TEST_CATAGORIES[17]}\`='${TEST_RESULT_VALUE[17]}',
+\`${TEST_CATAGORIES[18]}\`='${TEST_RESULT_VALUE[18]}',
+\`${TEST_CATAGORIES[19]}\`='${TEST_RESULT_VALUE[19]}',
+\`${TEST_CATAGORIES[20]}\`='${TEST_RESULT_VALUE[20]}',
+\`${TEST_CATAGORIES[21]}\`='${TEST_RESULT_VALUE[21]}',
+\`${TEST_CATAGORIES[22]}\`='${TEST_RESULT_VALUE[22]}',
+\`${TEST_CATAGORIES[23]}\`='${TEST_RESULT_VALUE[23]}',
+\`${TEST_CATAGORIES[24]}\`='${TEST_RESULT_VALUE[24]}',
+\`${TEST_CATAGORIES[25]}\`='${TEST_RESULT_VALUE[25]}',
+\`${TEST_CATAGORIES[26]}\`='${TEST_RESULT_VALUE[26]}',
+\`${TEST_CATAGORIES[27]}\`='${TEST_RESULT_VALUE[27]}',
+\`${TEST_CATAGORIES[28]}\`='${TEST_RESULT_VALUE[28]}',
+\`${TEST_CATAGORIES[29]}\`='${TEST_RESULT_VALUE[29]}',
+\`${TEST_CATAGORIES[30]}\`='${TEST_RESULT_VALUE[30]}',
+\`${TEST_CATAGORIES[31]}\`='${TEST_RESULT_VALUE[31]}',
+\`${TEST_CATAGORIES[32]}\`='${TEST_RESULT_VALUE[32]}',
+\`${TEST_CATAGORIES[33]}\`='${TEST_RESULT_VALUE[33]}',
+\`${TEST_CATAGORIES[34]}\`='${TEST_RESULT_VALUE[34]}',
+\`${TEST_CATAGORIES[35]}\`='${TEST_RESULT_VALUE[35]}',
+\`${TEST_CATAGORIES[36]}\`='${TEST_RESULT_VALUE[36]}',
+\`${TEST_CATAGORIES[37]}\`='${TEST_RESULT_VALUE[37]}',
+\`${TEST_CATAGORIES[39]}\`='${TEST_RESULT_VALUE[39]}',
+\`${TEST_CATAGORIES[40]}\`='${TEST_RESULT_VALUE[40]}';
+SQL_QUERIES
+  RESP=$?
+  echo "$RESP"
+}
+
+
+
+KENSA_DATE=$(dbupload_get_date)
+KENSA_G_DATETIME=$(dbupload_get_datetime)
+KENSA_BYDATE_TABLE="RDCA-B01_776884+_${KENSA_DATE}_A_01"
+KENSA_GENERAL_TABLE="RDCA-B01_776884+_GENERAL_A_01"
+if [ -z "${KENSA_DATE}" ]; then
+  echo "Cannot aquire date time information from server"
+  exit 1
+fi
+
+dbupload_create_table "${KENSA_GENERAL_TABLE}"
+dbupload_create_table "${KENSA_BYDATE_TABLE}"
+
+GENERATION=$(dbupload_check_mac_duplicate "${KENSA_GENERAL_TABLE}")
+RESP=$?
+if [ "${RESP}" -eq 0 ]; then
+  if [ "${GENERATION}" == "0" ]; then
+    UPLD_STATUS=$(dbupload_insert_into_table_gen "${KENSA_GENERAL_TABLE}" "${KENSA_G_DATETIME}" "${GENERATION}")
+    if [ $UPLD_STATUS -ne 0 ]; then
+      echo "ERROR: Can not update data to genenral csv"
+      exit 1
+    fi
+    UPLD_STATUS=$(dbupload_insert_into_table_gen "${KENSA_BYDATE_TABLE}" "${KENSA_G_DATETIME}" "${GENERATION}")
+    if [ $UPLD_STATUS -ne 0 ]; then
+      echo "ERROR: Can not update data to date csv"
+      exit 1
+    fi
+  elif [ "${GENERATION}" -le 9 ]; then
+    echo    "This board has been setup for $GENERATION times."
+    echo -n "Do you want to update the result ( Yes ):  "
+    echo "QUERYPOPUP:このボードは $GENERATION 回試験しました。 試験結果を保存しますか" | nc "${SERVER_IPADDR}" 9999
+    while true 
+    do
+      sleep 1
+      echo -n ". "
+      GENERATION_RESPONSE=`echo "QUERYGETRES" | nc "${SERVER_IPADDR}" 9999`
+      if [ "x${GENERATION_RESPONSE}" == "xACCEPTED" ] || [ "x${GENERATION_RESPONSE}" == "xREJECTED" ]; then
+        break
+      fi
+      
+    done
+    
+    if [ "x${GENERATION_RESPONSE}" == "xACCEPTED" ]; then
+      UPLD_STATUS=$(dbupload_insert_into_table_gen "${KENSA_GENERAL_TABLE}" "${KENSA_G_DATETIME}" "${GENERATION}")
+      if [ $UPLD_STATUS -ne 0 ]; then
+        echo "ERROR: Can not update data to genenral csv"
+        exit 1
+      fi
+      UPLD_STATUS=$(dbupload_insert_into_table_gen "${KENSA_BYDATE_TABLE}" "${KENSA_G_DATETIME}" "${GENERATION}")
+      if [ $UPLD_STATUS -ne 0 ]; then
+        echo "ERROR: Can not update data to date csv"
+        exit 1
+      fi
+    else
+      echo "You have discarded, nothing change"
+      exit 1
+    fi
+  else
+    echo "Excess the max 10 times to rework for this board"
+    exit 1
+  fi
+else
+  exit 1
+fi
+
+rm -rf "${WORKSPACE_DIR}"
+
+exit 0
